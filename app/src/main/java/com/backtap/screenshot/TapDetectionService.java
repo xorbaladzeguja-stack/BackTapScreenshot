@@ -166,16 +166,12 @@ public class TapDetectionService extends Service implements SensorEventListener 
     }
 
     private void startScreenCapture() {
-        WindowManager windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-        if (windowManager == null) throw new IllegalStateException("WindowManager მიუწვდომელია");
         DisplayMetrics metrics = new DisplayMetrics();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            android.view.Display display = getDisplay();
-            if (display == null) display = windowManager.getDefaultDisplay();
-            display.getRealMetrics(metrics);
-        } else {
-            windowManager.getDefaultDisplay().getRealMetrics(metrics);
-        }
+        DisplayManager displayManager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
+        if (displayManager == null) throw new IllegalStateException("DisplayManager მიუწვდომელია");
+        android.view.Display display = displayManager.getDisplay(android.view.Display.DEFAULT_DISPLAY);
+        if (display == null) throw new IllegalStateException("მთავარი ეკრანის ამოცნობა ვერ მოხერხდა");
+        display.getRealMetrics(metrics);
         screenWidth = metrics.widthPixels;
         screenHeight = metrics.heightPixels;
         screenDensity = metrics.densityDpi;

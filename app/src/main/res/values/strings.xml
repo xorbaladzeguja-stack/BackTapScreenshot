@@ -1,6 +1,5 @@
 <resources>
     <string name="app_name">უკანა დაკაკუნება</string>
-    <string name="accessibility_description">საჭიროა მხოლოდ სისტემური სქრინშოტის ბრძანების შესასრულებლად. აპი ეკრანის შიგთავსს არ კითხულობს.</string>
     <string name="notification_title">Back Tap Screenshot ჩართულია</string>
     <string name="notification_text">უკანა მხარეს ორჯერ დაკაკუნების მოლოდინში</string>
     <string name="notification_channel">უკანა დაკაკუნების სერვისი</string>

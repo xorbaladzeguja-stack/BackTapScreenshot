@@ -1,18 +1,13 @@
 package com.backtap.screenshot;
 
-import android.Manifest;
 import android.app.Activity;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
+import android.media.projection.MediaProjectionManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
-import android.text.TextUtils;
-import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -25,11 +20,12 @@ public class MainActivity extends Activity {
     private static final String PREFS = "back_tap_preferences";
     private static final String PREF_RUNNING = "listener_running";
     private static final String PREF_THRESHOLD = "threshold";
+    private static final int REQUEST_MEDIA_PROJECTION = 701;
     private static final int BLUE = Color.rgb(37, 99, 235);
     private static final int TEXT = Color.rgb(238, 242, 255);
     private static final int MUTED = Color.rgb(178, 190, 210);
 
-    private TextView accessStatus;
+    private TextView projectionStatus;
     private TextView serviceStatus;
     private TextView sensitivityValue;
 
@@ -65,24 +61,21 @@ public class MainActivity extends Activity {
         subtitle.setPadding(0, dp(10), 0, dp(24));
         root.addView(subtitle);
 
-        addSectionTitle(root, "1. სპეციალური წვდომა");
-        accessStatus = addStatusText(root);
-        Button accessButton = makeButton("წვდომის პარამეტრების გახსნა");
-        accessButton.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
-        root.addView(accessButton, buttonParams());
+        addSectionTitle(root, "1. ეკრანის გადაღების ნებართვა");
+        projectionStatus = addStatusText(root);
+        Button startButton = makeButton("ნებართვის მიცემა და ჩართვა");
+        startButton.setOnClickListener(v -> requestCapturePermission());
+        root.addView(startButton, buttonParams());
 
         addSectionTitle(root, "2. დაკაკუნების ამოცნობა");
         serviceStatus = addStatusText(root);
-        Button startButton = makeButton("ჩართვა");
-        startButton.setOnClickListener(v -> startDetection());
-        root.addView(startButton, buttonParams());
-
         Button stopButton = makeButton("გამორთვა");
         stopButton.setBackgroundColor(Color.rgb(75, 85, 99));
         stopButton.setOnClickListener(v -> {
             stopService(new Intent(this, TapDetectionService.class));
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(PREF_RUNNING, false).apply();
             refreshStatus();
-            Toast.makeText(this, "დაკაკუნების ამოცნობა გამორთულია", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "სერვისი გამორთულია", Toast.LENGTH_SHORT).show();
         });
         root.addView(stopButton, buttonParams());
 
@@ -108,14 +101,14 @@ public class MainActivity extends Activity {
         root.addView(seekBar, new LinearLayout.LayoutParams(-1, dp(48)));
 
         TextView note = new TextView(this);
-        note.setText("შენიშვნა: ამოცნობისთვის აპი მუშაობს ფონურ სერვისად და აჩვენებს მუდმივ შეტყობინებას. HONOR-ის ენერგიის დაზოგვამ შეიძლება სერვისი გააჩეროს.");
+        note.setText("მუშაობისას Android აჩვენებს ეკრანის გაზიარების მუდმივ შეტყობინებას. სქრინშოტის გადაღება შესაძლებელია მხოლოდ მანამ, სანამ ეს ნებართვის სესია აქტიურია. აპის ხელახლა გაშვებისას ნებართვა თავიდან უნდა დაადასტურო.");
         note.setTextColor(MUTED);
         note.setTextSize(13);
         note.setPadding(0, dp(18), 0, 0);
         root.addView(note);
 
         TextView privacy = new TextView(this);
-        privacy.setText("კონფიდენციალურობა: აპს არ სჭირდება ინტერნეტი, კამერა ან მდებარეობა. ეკრანის შიგთავსს არ კითხულობს; სქრინშოტს Android-ის სისტემური ბრძანებით იღებს.");
+        privacy.setText("კონფიდენციალურობა: აპი არ იყენებს Accessibility-ს, ინტერნეტს, კამერას ან მდებარეობას. MediaProjection-ის ნებართვით ეკრანის კადრი ინახება Pictures/BackTapScreenshot საქაღალდეში.");
         privacy.setTextColor(MUTED);
         privacy.setTextSize(12);
         privacy.setPadding(0, dp(12), 0, 0);
@@ -125,6 +118,38 @@ public class MainActivity extends Activity {
         scrollView.setFillViewport(true);
         scrollView.addView(root);
         return scrollView;
+    }
+
+    private void requestCapturePermission() {
+        MediaProjectionManager manager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+        if (manager == null) {
+            Toast.makeText(this, "ეკრანის გადაღების სერვისი მიუწვდომელია", Toast.LENGTH_LONG).show();
+            return;
+        }
+        startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_MEDIA_PROJECTION) return;
+        if (resultCode != RESULT_OK || data == null) {
+            Toast.makeText(this, "ნებართვა არ მიგიცია — სერვისი არ ჩაირთო", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Intent serviceIntent = new Intent(this, TapDetectionService.class);
+        serviceIntent.putExtra(TapDetectionService.EXTRA_RESULT_CODE, resultCode);
+        serviceIntent.putExtra(TapDetectionService.EXTRA_RESULT_DATA, data);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent);
+            else startService(serviceIntent);
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(PREF_RUNNING, true).apply();
+            Toast.makeText(this, "ჩართულია — ორჯერ დააკაკუნე ტელეფონის უკანა მხარეს", Toast.LENGTH_LONG).show();
+        } catch (RuntimeException exception) {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(PREF_RUNNING, false).apply();
+            Toast.makeText(this, "ვერ ჩაირთო: " + exception.getMessage(), Toast.LENGTH_LONG).show();
+        }
+        refreshStatus();
     }
 
     private void addSectionTitle(LinearLayout root, String text) {
@@ -163,45 +188,16 @@ public class MainActivity extends Activity {
     }
 
     private void refreshStatus() {
-        if (accessStatus == null || serviceStatus == null) return;
-        boolean enabled = isAccessibilityEnabled(this);
+        if (projectionStatus == null || serviceStatus == null) return;
         boolean running = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_RUNNING, false);
-        accessStatus.setText(enabled ? "ჩართულია — სქრინშოტის ბრძანება ხელმისაწვდომია." : "გამორთულია — ჩართე ქვემოთ მოცემული პარამეტრებიდან.");
-        serviceStatus.setText(running ? "ჩართულია — დაკაკუნებას უსმენს." : "გამორთულია — მონიტორინგი არ მიმდინარეობს.");
+        projectionStatus.setText("სქრინშოტისთვის გამოიყენება Android-ის ეკრანის გაზიარების ნებართვა — ჩართვისას დაადასტურე სისტემური ფანჯარა.");
+        serviceStatus.setText(running ? "ჩართულია — დაკაკუნებას უსმენს და ეკრანის კადრს იღებს." : "გამორთულია — მონიტორინგი არ მიმდინარეობს.");
     }
 
     private void updateSensitivityLabel(int progress) {
         float threshold = 2f + progress * 0.5f;
-        if (sensitivityValue != null) sensitivityValue.setText(String.format(java.util.Locale.US, "ზღვარი: %.1f  (დაბალი მნიშვნელობა = უფრო მგრძნობიარე)", threshold));
-    }
-
-    private void startDetection() {
-        if (!isAccessibilityEnabled(this)) {
-            Toast.makeText(this, "ჯერ ჩართე Back Tap Screenshot Accessibility-ში", Toast.LENGTH_LONG).show();
-            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-            return;
-        }
-        Intent serviceIntent = new Intent(this, TapDetectionService.class);
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent);
-            else startService(serviceIntent);
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(PREF_RUNNING, true).apply();
-            Toast.makeText(this, "დაკაკუნების ამოცნობა ჩაირთო", Toast.LENGTH_SHORT).show();
-        } catch (RuntimeException exception) {
-            Toast.makeText(this, "სერვისი ვერ ჩაირთო: " + exception.getMessage(), Toast.LENGTH_LONG).show();
-        }
-        refreshStatus();
-    }
-
-    static boolean isAccessibilityEnabled(Context context) {
-        String enabledServices = Settings.Secure.getString(
-                context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        if (TextUtils.isEmpty(enabledServices)) return false;
-        String expected = new ComponentName(context, ScreenshotAccessibilityService.class).flattenToString();
-        for (String item : enabledServices.split(":")) {
-            if (expected.equalsIgnoreCase(item)) return true;
-        }
-        return false;
+        if (sensitivityValue != null) sensitivityValue.setText(String.format(java.util.Locale.US,
+                "ზღვარი: %.1f  (დაბალი მნიშვნელობა = უფრო მგრძნობიარე)", threshold));
     }
 
     private int dp(float value) {
